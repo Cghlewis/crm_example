@@ -1,1 +1,3 @@
-# crm_example
+This is a crm dashboard built as an example for the Streamline Data Science [website](https://streamlinedatascience.io/).
+
+Dashboard can be seen here: 
