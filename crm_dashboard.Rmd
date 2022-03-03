@@ -1,0 +1,260 @@
+---
+title: "Company Sales Metrics YTD"
+output: 
+  flexdashboard::flex_dashboard:
+    social: ["twitter", "facebook", "linkedin"]
+    orientation: columns
+    vertical_layout: fill
+    theme:
+      bg: "#FFFFFF"
+      fg: "#0074E1"
+      primary: "#091be3"
+      base_font: 
+        google: Prompt
+      heading_font:
+        google: Sen
+      code_font:
+        google: 
+          # arguments to sass::font_google() 
+          family: JetBrains Mono
+          local: false
+---
+
+<style type="text/css">
+
+.chart-title { /* chart_title */
+  font-size: 16px;
+  font-color: #222222;
+  
+</style>
+
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(ggthemes)
+
+```
+
+```{r}
+
+teal <- "#10E7DC"
+darkblue <- "#0074E1"
+blue <- "#1B9CE5"
+lightblue <- "#6CDAEE"
+orange <- "#F79E02"
+
+```
+
+
+```{r}
+
+accounts <- read_csv("data/accounts.csv")
+
+clicks <- read_csv("data/clicks.csv")
+
+products <- read_csv("data/products.csv")
+
+sales_pipeline <- read_csv("data/sales_pipeline.csv")
+
+sales_teams <- read_csv("data/sales_teams.csv")
+
+```
+
+
+Column
+-----------------------------------------------------------------------
+
+### Number of deals created
+
+```{r}
+
+deals <- sales_pipeline %>%
+  filter(created_on >= as.Date("2017-01-01")) %>%
+  count() %>%
+  mutate(n = scales::comma(n)) 
+
+valueBox(deals, icon = "fa-handshake")
+
+
+```
+
+
+### Percentage of each deal stage
+
+```{r}
+
+hsize <- 2
+
+sales_pipeline %>%
+  group_by(deal_stage) %>%
+  summarise(cnt = n()) %>%
+  dplyr::mutate(percent = cnt/sum(cnt),
+         deal_stage = case_when(
+           deal_stage == "In_Progress" ~ "In progress",
+           TRUE ~ deal_stage)) %>%
+  mutate(x = hsize) %>%
+  ggplot(aes(x = hsize, y = percent, fill = deal_stage)) +
+  geom_col() +
+  coord_polar(theta = "y") +
+  xlim(c(0.2, hsize + 0.5)) + 
+  geom_text(aes(label = scales::percent(percent, accuracy = 1)), color = c("black", "black", "white"),
+            position = position_stack(vjust = 0.5), size = 5.5) +
+  theme_void(base_family = "JetBrains Mono") +
+  scale_fill_manual(values=c(teal, orange, darkblue)) +
+  theme(legend.position = "top", legend.title = element_blank(), legend.text = element_text(size=15), 
+         text = element_text(size = 13)) 
+
+
+```
+
+### Products sold <b><font color = "#0074E1">YTD</font></b> (compared to <b><font color = "#10E7DC">last YTD</font></b>)
+
+```{r}
+
+sales_pipeline %>%
+  filter(deal_stage == "Won") %>%
+  group_by(product) %>%
+  summarise(total_products = n()) %>%
+  add_column(last_total_products = c(25, 1200, 1150, 820, 900, 1100, 700)) %>%
+  ggplot(aes(reorder(product, total_products), total_products)) +
+  geom_bar(stat = "identity", fill = darkblue) +
+  geom_point(aes(y=last_total_products), color = teal, shape = 108, size = 18) +
+  labs(x = "Product \n", y = "\n Total Number Sold") +
+  theme_tufte(base_family = "JetBrains Mono") +
+  theme(legend.title = element_blank(), legend.text = element_text(size=13),
+        text = element_text(size = 18), legend.position = "top") +
+  scale_y_continuous(breaks = c(0, 250, 500, 750, 1000, 1250, 1500, 1750, 2000)) +
+  coord_flip()
+
+```
+
+
+Column
+-----------------------------------------------------------------------
+
+### Total value of won deals
+
+```{r}
+
+value <- sales_pipeline %>%
+  filter (deal_stage == "Won") %>%
+  summarise(total_value = scales::dollar(sum(close_value, na.rm = TRUE)))
+
+
+valueBox(value, icon = "fa-trophy")
+
+
+```
+
+### Source of website clicks
+
+```{r}
+
+source <- clicks %>%
+  filter (!source %in% c("Paid", "Direct")) %>%
+  group_by(source) %>%
+  summarise(count = n()) %>%
+  mutate(percent = count/sum(count)) %>%
+  mutate(percent = scales::percent(percent, accuracy = 1),
+         count = scales::comma(count)) %>%
+  set_names("Source", "Count", "%") %>%
+  arrange(desc(Count))
+
+industry <- clicks %>%
+  group_by(industry) %>%
+  summarise(count = n()) %>%
+  mutate(percent = count/sum(count)) %>%
+  mutate(percent = scales::percent(percent, accuracy = 1),
+         count = scales::comma(count)) %>%
+  set_names("Source", "Count", "%") %>%
+  arrange(desc(Count))
+
+combine <- bind_rows(source, industry)
+
+kbl(combine, align = c("l", "c", "c")) %>%
+  kable_styling() %>%
+  pack_rows("Referral", 1, 4) %>%
+  pack_rows("Industry", 5, 11)
+
+```
+
+
+Column
+-----------------------------------------------------------------------
+
+### Average time to win deals
+
+```{r}
+
+days <- sales_pipeline %>%
+  filter (deal_stage == "Won") %>%
+  mutate(close_time = as.numeric(close_date - created_on)) %>%
+  summarise(close_days = paste0(round(mean(close_time), digits =0), " days"))
+
+# sales_pipeline %>%
+#   filter (deal_stage == "Won") %>%
+#   mutate(close_days = round(as.Date(close_date) -as.Date(created_on), digits =0))
+
+valueBox(days, icon = "fa-clock", color = teal)
+
+
+```
+
+
+### Percentage of total sales by regional office
+
+```{r}
+
+hsize <- 2
+
+sales_pipeline %>%
+  filter(deal_stage == "Won") %>%
+  left_join(sales_teams, by = "sales_agent") %>%
+  group_by(regional_office) %>%
+  summarise(cnt = n()) %>%
+  dplyr::mutate(percent = cnt/sum(cnt)) %>%
+  mutate(x = hsize) %>%
+  ggplot(aes(x = hsize, y = percent, fill = regional_office)) +
+  geom_col() +
+  coord_polar(theta = "y") +
+  xlim(c(0.2, hsize + 0.5)) + 
+  geom_text(aes(label = scales::percent(percent, accuracy = 1)),
+            position = position_stack(vjust = 0.5), size = 5.5) +
+  theme_void(base_family = "JetBrains Mono") +
+  scale_fill_manual(values=c(lightblue, blue, teal)) +
+  theme(legend.position = "top", legend.title = element_blank(), legend.text = element_text(size=15), 
+         text = element_text(size = 13)) 
+
+
+```
+
+
+### Quarterly sales by region
+
+```{r}
+
+sales_pipeline %>%
+  filter(deal_stage == "Won") %>%
+  mutate(Quarter = case_when(
+    close_date < as.Date("2017-04-01") ~ 1,
+    close_date < as.Date("2017-07-01") ~ 2,
+    close_date < as.Date("2017-10-01") ~ 3,
+    TRUE ~ 4)) %>%
+  left_join(sales_teams, by = "sales_agent") %>%
+  group_by(Quarter, regional_office) %>%
+  summarise(total_products = n()) %>%
+  ggplot(aes(x = regional_office, y = total_products, fill = factor(Quarter))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c(orange, lightblue, darkblue, teal)) +
+  theme_tufte(base_family = "JetBrains Mono") +
+  scale_y_continuous(breaks = c(0, 250, 500, 750, 1000, 1250, 1500, 1750)) +
+  theme(legend.text = element_text(size=15), text = element_text(size = 18), legend.position = "top") +
+  labs(x = "\n Regional Office", y = "Total Products Sold \n", fill = "Qtr")
+
+```
+
